@@ -1,68 +1,13 @@
+// entrypoints/popup/components/RecordDialogComponent.tsx - simplified version
+
 import { useState, useEffect } from "react"
-import { AlertCircle, ChevronRight, Mail, Mic, MicOff, Play, Settings, X, Zap, Check, ShieldAlert } from "lucide-react"
-import DraggableIndicator from "./DraggableIndicatorComponent"
+import { ChevronRight, Mail } from "lucide-react"
 import { Button, Input } from "@mui/material"
-import { calculatePopupPosition } from "../utils/calculate-popup-postion.utils"
 
 export default function RecordingExtension() {
   const [email, setEmail] = useState<string>("")
   const [isEmailSet, setIsEmailSet] = useState<boolean>(false)
-  const [isRecording, setIsRecording] = useState<boolean>(false)
-  const [recordingTime, setRecordingTime] = useState<number>(0)
-  const [showFloatingControls, setShowFloatingControls] = useState<boolean>(false)
-  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null)
-  const [indicatorPosition, setIndicatorPosition] = useState({ x: 20, y: 20 })
-  const [permissionStatus, setPermissionStatus] = useState<"idle" | "requesting" | "granted" | "denied">("idle")
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  // Add this useEffect to listen for position changes
-  useEffect(() => {
-    const handlePositionChange = (e: CustomEvent) => {
-      setIndicatorPosition(e.detail.position)
-    }
-
-    window.addEventListener("floatingIndicatorMove", handlePositionChange as EventListener)
-
-    // Load saved position on mount
-    const savedPosition = localStorage.getItem("floatingIndicatorPosition")
-    if (savedPosition) {
-      try {
-        setIndicatorPosition(JSON.parse(savedPosition))
-      } catch (e) {
-        console.error("Failed to parse saved position", e)
-      }
-    }
-
-    return () => {
-      window.removeEventListener("floatingIndicatorMove", handlePositionChange as EventListener)
-    }
-  }, [])
-
-  useEffect(() => {
-    // Listen for messages from background script
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      const messageListener = (message: any) => {
-        if (message.action === "needPermissions") {
-          setPermissionStatus("requesting")
-          setIsRecording(false)
-        } else if (message.action === "permissionsGranted") {
-          setPermissionStatus("granted")
-          setErrorMessage(null)
-        } else if (message.action === "permissionsDenied") {
-          setPermissionStatus("denied")
-        } else if (message.action === "recordingError") {
-          setErrorMessage(message.error)
-          setIsRecording(false)
-        }
-      }
-
-      chrome.runtime.onMessage.addListener(messageListener)
-
-      return () => {
-        chrome.runtime.onMessage.removeListener(messageListener)
-      }
-    }
-  }, [])
+  const [recordingStatus, setRecordingStatus] = useState<{isRecording: boolean, recordingStartTime: number} | null>(null)
 
   useEffect(() => {
     const savedEmail = localStorage.getItem("userEmail")
@@ -71,20 +16,13 @@ export default function RecordingExtension() {
       setIsEmailSet(true)
     }
 
-    // Check if recording is in progress
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.session) {
-      chrome.storage.session.get("recording", (result) => {
-        if (result?.recording) {
-          setIsRecording(true)
-          startTimer()
+    // Check current recording status
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      chrome.runtime.sendMessage({ action: "get-recording-status" }, (response) => {
+        if (response) {
+          setRecordingStatus(response)
         }
       })
-    } else {
-      console.log("Chrome storage API not available in this environment")
-    }
-
-    return () => {
-      if (intervalId) clearInterval(intervalId)
     }
   }, [])
 
@@ -92,103 +30,24 @@ export default function RecordingExtension() {
     if (email && email.includes("@")) {
       localStorage.setItem("userEmail", email)
       setIsEmailSet(true)
+      
+      // Notify content script that email is set
+      if (typeof chrome !== "undefined" && chrome.tabs) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]?.id) {
+            chrome.tabs.sendMessage(tabs[0].id, { 
+              action: "emailSet", 
+              email: email 
+            })
+          }
+        })
+      }
     }
   }
 
   const changeEmail = () => {
     setIsEmailSet(false)
   }
-
-  const startTimer = () => {
-    const id = setInterval(() => {
-      setRecordingTime((prev) => prev + 1)
-    }, 1000)
-    setIntervalId(id)
-  }
-
-  const stopTimer = () => {
-    if (intervalId) {
-      clearInterval(intervalId)
-      setIntervalId(null)
-    }
-  }
-
-  const requestPermissions = (tabId?: number) => {
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      chrome.runtime.sendMessage({
-        action: "requestPermissions",
-        tabId: tabId
-      })
-    }
-  }
-
-  const handleRecordClick = () => {
-    // Reset error state
-    setErrorMessage(null)
-    
-    if (isRecording) {
-      stopRecording()
-    } else {
-      startRecording()
-    }
-  }
-
-  const startRecording = () => {
-    if (typeof chrome !== "undefined" && chrome.tabs && chrome.runtime) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const currentTab = tabs[0]
-        if (currentTab?.id) {
-          chrome.runtime.sendMessage({
-            action: "startRecording",
-            tabId: currentTab.id,
-            email: email,
-          })
-          setIsRecording(true)
-          startTimer()
-        }
-      })
-    } else {
-      // Fallback for preview environment
-      console.log("Chrome API not available, simulating recording start")
-      setIsRecording(true)
-      startTimer()
-    }
-  }
-
-  const stopRecording = () => {
-    if (typeof chrome !== "undefined" && chrome.tabs && chrome.runtime) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const currentTab = tabs[0]
-        if (currentTab?.id) {
-          chrome.runtime.sendMessage({
-            action: "stopRecording",
-            tabId: currentTab.id,
-          })
-          setIsRecording(false)
-          stopTimer()
-          setRecordingTime(0)
-        }
-      })
-    } else {
-      // Fallback for preview environment
-      console.log("Chrome API not available, simulating recording stop")
-      setIsRecording(false)
-      stopTimer()
-      setRecordingTime(0)
-    }
-  }
-
-  const toggleFloatingControls = () => {
-    setShowFloatingControls(!showFloatingControls)
-  }
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-  }
-
-  const popupPosition = calculatePopupPosition(indicatorPosition)
 
   const containerStyles = {
     width: "400px",
@@ -203,8 +62,7 @@ export default function RecordingExtension() {
   const patternOverlayStyles = {
     position: "absolute" as const,
     inset: 0,
-    backgroundImage:
-      "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxwYXR0ZXJuIGlkPSJncmlkIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiPjxwYXRoIGQ9Ik0gMjAgMCBMIDAgMCAwIDIwIiBmaWxsPSJub25lIiBzdHJva2U9InJnYmEoMTQ5LCA3NiwgMjMzLCAwLjEpIiBzdHJva2Utd2lkdGg9IjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')",
+    backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxwYXR0ZXJuIGlkPSJncmlkIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHBhdHRlcm5Vbml0cz0idXNlclNwYWNlT25Vc2UiPjxwYXRoIGQ9Ik0gMjAgMCBMIDAgMCAwIDIwIiBmaWxsPSJub25lIiBzdHJva2U9InJnYmEoMTQ5LCA3NiwgMjMzLCAwLjEpIiBzdHJva2Utd2lkdGg9IjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')",
   }
 
   const cardStyles = {
@@ -270,182 +128,11 @@ export default function RecordingExtension() {
     cursor: "pointer",
   }
 
-  const recordButtonStyles = (isRecording: boolean) => ({
-    width: "100%",
-    padding: "12px 16px",
-    borderRadius: "8px",
-    fontWeight: 600,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    transition: "all 300ms",
-    backgroundColor: isRecording ? "#dc2626" : "#9333ea",
-    color: "white",
-    border: "none",
-    cursor: "pointer",
-    boxShadow: `0 0 15px rgba(${isRecording ? "239, 68, 68" : "149, 76, 233"}, 0.5)`,
-  })
-
-  const permissionButtonStyles = {
-    width: "100%",
-    padding: "12px 16px",
-    borderRadius: "8px",
-    fontWeight: 600,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    transition: "all 300ms",
-    backgroundColor: "#2563eb",
-    color: "white",
-    border: "none",
-    cursor: "pointer",
-    boxShadow: "0 0 15px rgba(37, 99, 235, 0.5)",
-  }
-
-  const recordingTimeStyles = {
+  const statusMessageStyles = {
     textAlign: "center" as const,
-    fontSize: "14px",
-    color: "#d8b4fe",
-  }
-
-  const floatingControlsStyles = {
-    position: "fixed" as const,
-    zIndex: 50,
-  }
-
-  const popupStyles = {
-    position: "fixed" as const,
-    backgroundColor: "rgba(0, 0, 0, 0.8)",
-    backdropFilter: "blur(8px)",
-    borderRadius: "8px",
-    border: "1px solid rgba(149, 76, 233, 0.5)",
     padding: "16px",
-    width: "224px",
-    boxShadow: "0 0 20px rgba(149, 76, 233, 0.4)",
-    zIndex: 9999,
-    top: `${popupPosition.top}px`,
-    left: `${popupPosition.left}px`,
-    transformOrigin: popupPosition.transformOrigin,
-  }
-
-  const popupHeaderStyles = {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "12px",
-  }
-
-  const popupTitleStyles = {
-    fontSize: "14px",
-    fontWeight: 600,
     color: "#d8b4fe",
-  }
-
-  const closeButtonStyles = {
-    color: "#d8b4fe",
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    padding: 0,
-  }
-
-  const buttonContainerStyles = {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "8px",
-  }
-
-  const stopButtonStyles = {
-    width: "100%",
-    padding: "8px 12px",
-    backgroundColor: "#dc2626",
-    color: "white",
-    borderRadius: "4px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
     fontSize: "14px",
-    fontWeight: 500,
-    transition: "background-color 150ms",
-    border: "none",
-    cursor: "pointer",
-    boxShadow: "0 0 10px rgba(239, 68, 68, 0.3)",
-  }
-
-  const continueButtonStyles = {
-    width: "100%",
-    padding: "8px 12px",
-    backgroundColor: "transparent",
-    border: "1px solid rgba(149, 76, 233, 0.5)",
-    color: "#d8b4fe",
-    borderRadius: "4px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    fontSize: "14px",
-    fontWeight: 500,
-    transition: "all 150ms",
-    cursor: "pointer",
-  }
-
-  const errorStyles = {
-    display: "flex", 
-    alignItems: "center", 
-    gap: "8px", 
-    backgroundColor: "rgba(220, 38, 38, 0.2)", 
-    padding: "10px", 
-    borderRadius: "6px", 
-    marginBottom: "16px",
-    fontSize: "14px"
-  }
-
-  const successStyles = {
-    display: "flex", 
-    alignItems: "center", 
-    gap: "8px", 
-    backgroundColor: "rgba(34, 197, 94, 0.2)", 
-    padding: "10px", 
-    borderRadius: "6px", 
-    marginBottom: "16px",
-    fontSize: "14px"
-  }
-
-  const renderPermissionUI = () => {
-    return (
-      <div style={flexColStyles}>
-        <div style={{
-          display: "flex", 
-          alignItems: "center", 
-          gap: "8px", 
-          backgroundColor: "rgba(37, 99, 235, 0.2)", 
-          padding: "10px", 
-          borderRadius: "6px", 
-          marginBottom: "8px"
-        }}>
-          <ShieldAlert style={{ height: "20px", width: "20px", color: "#93c5fd" }} />
-          <span style={{ fontSize: "14px" }}>This extension needs permissions to record your screen and audio</span>
-        </div>
-        
-        <button 
-          onClick={() => requestPermissions()} 
-          style={permissionButtonStyles}
-        >
-          <ShieldAlert style={{ height: "20px", width: "20px" }} />
-          Grant Permissions
-        </button>
-        
-        <button 
-          onClick={() => setPermissionStatus("idle")} 
-          style={continueButtonStyles}
-        >
-          Cancel
-        </button>
-      </div>
-    )
   }
 
   return (
@@ -506,14 +193,9 @@ export default function RecordingExtension() {
         ) : (
           <div style={cardStyles}>
             <div style={cardHeaderStyles}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <h2 style={titleTextStyles}>
-                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <Zap style={iconStyles} />
-                    Screen Recorder
-                  </span>
-                </h2>
-                <Settings style={iconStyles} />
+              <div style={headerTitleStyles}>
+                <Mail style={iconStyles} />
+                <h2 style={titleTextStyles}>Meet Recorder Setup</h2>
               </div>
             </div>
             <div style={cardBodyStyles}>
@@ -524,78 +206,23 @@ export default function RecordingExtension() {
                     Change
                   </button>
                 </div>
-
-                {/* Error message */}
-                {errorMessage && (
-                  <div style={errorStyles}>
-                    <AlertCircle style={{ height: "18px", width: "18px", color: "#ef4444" }} />
-                    <span>{errorMessage}</span>
-                  </div>
-                )}
-
-                {/* Permission granted message */}
-                {permissionStatus === "granted" && (
-                  <div style={successStyles}>
-                    <Check style={{ height: "18px", width: "18px", color: "#22c55e" }} />
-                    <span>Permissions granted! You can now start recording.</span>
-                  </div>
-                )}
-
-                {/* Show permission UI or regular controls */}
-                {permissionStatus === "requesting" ? (
-                  renderPermissionUI()
-                ) : (
-                  <>
-                    <button onClick={handleRecordClick} style={recordButtonStyles(isRecording)}>
-                      {isRecording ? (
-                        <>
-                          <MicOff style={{ height: "20px", width: "20px" }} />
-                          Stop Recording
-                        </>
-                      ) : (
-                        <>
-                          <Mic style={{ height: "20px", width: "20px" }} />
-                          Start Recording
-                        </>
-                      )}
-                    </button>
-                    
-                    {isRecording && <div style={recordingTimeStyles}>Recording time: {formatTime(recordingTime)}</div>}
-                  </>
-                )}
+                
+                <div style={statusMessageStyles}>
+                  {recordingStatus?.isRecording ? 
+                    "Recording is active. Use the floating controls on the Meet page to manage recording." : 
+                    "Email saved! You can now access the recording controls on Google Meet."
+                  }
+                </div>
+                
+                <p style={{
+                  fontSize: "12px",
+                  color: "#d8b4fe",
+                  textAlign: "center" as const
+                }}>
+                  You can close this popup. Recording controls will appear directly on the Meet page.
+                </p>
               </div>
             </div>
-          </div>
-        )}
-
-        {isRecording && (
-          <div style={floatingControlsStyles}>
-            <DraggableIndicator
-              recordingTime={recordingTime}
-              formatTime={formatTime}
-              toggleControls={toggleFloatingControls}
-            />
-
-            {showFloatingControls && (
-              <div style={popupStyles}>
-                <div style={popupHeaderStyles}>
-                  <h3 style={popupTitleStyles}>Recording</h3>
-                  <button onClick={toggleFloatingControls} style={closeButtonStyles}>
-                    <X style={{ height: "16px", width: "16px" }} />
-                  </button>
-                </div>
-                <div style={buttonContainerStyles}>
-                  <button onClick={stopRecording} style={stopButtonStyles}>
-                    <MicOff style={{ height: "16px", width: "16px" }} />
-                    Stop Recording
-                  </button>
-                  <button onClick={toggleFloatingControls} style={continueButtonStyles}>
-                    <Play style={{ height: "16px", width: "16px" }} />
-                    Continue Recording
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

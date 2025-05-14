@@ -1,10 +1,12 @@
 export default defineBackground({
   main() {
-    let speakerSegments: { speaker: string; startTime: number; endTime: number; }[] = [];
-    let currentSpeaker: string | null = null;
-    let speakerStartTime: number = 0;
     let recordingStartTime: number = 0;
     let isRecording: boolean = false;
+
+    if (chrome.storage && chrome.storage.session) {
+      chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
+    }
+
 
     // Check if we have all required permissions
     const checkPermissions = async (): Promise<boolean> => {

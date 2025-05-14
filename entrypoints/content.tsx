@@ -1,24 +1,34 @@
+// Modified content.tsx - Focus on reliable floating indicator
 import type React from "react"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { createRoot } from "react-dom/client"
-import { Clock, MicOff, Play, X, Zap, ShieldAlert } from "lucide-react"
+import { Clock, MicOff, Play, X, Zap } from "lucide-react"
 
-// Floating recording indicator component
+// Floating recording indicator component with improved visibility and reliability
 const FloatingIndicator = () => {
   const [recordingTime, setRecordingTime] = useState<number>(0)
   const [showControls, setShowControls] = useState<boolean>(false)
   const [position, setPosition] = useState({ x: 20, y: 20 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [showPermissionAlert, setShowPermissionAlert] = useState(false)
   const indicatorRef = useRef<HTMLDivElement>(null)
   const recordingStartTimeRef = useRef<number>(Date.now())
+  const timerIntervalRef = useRef<number | null>(null)
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const elapsedTime = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
-      setRecordingTime(elapsedTime)
-    }, 1000)
+    console.log("FloatingIndicator mounted")
+    
+    // Start the timer
+    const startTimer = () => {
+      if (timerIntervalRef.current) {
+        window.clearInterval(timerIntervalRef.current)
+      }
+      
+      timerIntervalRef.current = window.setInterval(() => {
+        const elapsedTime = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
+        setRecordingTime(elapsedTime)
+      }, 1000) as unknown as number
+    }
 
     // Load saved position on mount
     const savedPosition = localStorage.getItem("floatingIndicatorPosition")
@@ -30,36 +40,43 @@ const FloatingIndicator = () => {
       }
     }
 
-    // Check for recording status from background script
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: "get-recording-status" }, (response) => {
-        if (response && response.isRecording) {
-          recordingStartTimeRef.current = response.recordingStartTime || Date.now()
+    // Check for recording status and start time from storage
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.session) {
+      chrome.storage.session.get(["recording", "recordingStartTime"], (result) => {
+        if (result?.recording) {
+          if (result.recordingStartTime) {
+            recordingStartTimeRef.current = result.recordingStartTime
+            const elapsedSeconds = Math.floor((Date.now() - result.recordingStartTime) / 1000)
+            setRecordingTime(elapsedSeconds)
+          }
         }
       })
     }
 
-    // Safely check if Chrome API is available
-    let messageListener: ((message: any) => void) | null = null
+    // Start the timer
+    startTimer()
+
+    // Message listener for recording control
+    const messageListener = (message: any) => {
+      console.log("FloatingIndicator received message:", message)
+      if (message.action === "stopRecording") {
+        if (timerIntervalRef.current) {
+          window.clearInterval(timerIntervalRef.current)
+          timerIntervalRef.current = null
+        }
+        removeFloatingIndicator()
+      }
+    }
 
     if (typeof chrome !== "undefined" && chrome.runtime) {
-      messageListener = (message: any) => {
-        if (message.action === "stopRecording") {
-          clearInterval(interval)
-          removeFloatingIndicator()
-        } else if (message.action === "needPermissions") {
-          setShowPermissionAlert(true)
-        } else if (message.action === "permissionsGranted") {
-          setShowPermissionAlert(false)
-        }
-      }
-
       chrome.runtime.onMessage.addListener(messageListener)
     }
 
     return () => {
-      clearInterval(interval)
-      if (typeof chrome !== "undefined" && chrome.runtime && messageListener) {
+      if (timerIntervalRef.current) {
+        window.clearInterval(timerIntervalRef.current)
+      }
+      if (typeof chrome !== "undefined" && chrome.runtime) {
         chrome.runtime.onMessage.removeListener(messageListener)
       }
     }
@@ -82,21 +99,6 @@ const FloatingIndicator = () => {
     }
   }
 
-  const requestPermissions = () => {
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const currentTab = tabs[0]
-        if (currentTab?.id) {
-          chrome.runtime.sendMessage({
-            action: "requestPermissions",
-            tabId: currentTab.id
-          })
-        }
-      })
-    }
-    setShowPermissionAlert(false)
-  }
-
   const stopRecording = () => {
     if (typeof chrome !== "undefined" && chrome.runtime) {
       // Get the current tab ID and send to background script
@@ -111,7 +113,6 @@ const FloatingIndicator = () => {
       })
     } else {
       console.log("Chrome runtime API not available, cannot send stop message")
-      // Fallback behavior for preview
       removeFloatingIndicator()
     }
   }
@@ -168,22 +169,18 @@ const FloatingIndicator = () => {
 
   // Calculate popup position to ensure it stays within viewport
   const calculatePopupPosition = () => {
-    // Default position is below the indicator
     const popupPosition = {
       top: position.y + 56,
       left: position.x,
       transformOrigin: "top left",
     }
-
-    // Check if popup would go off the bottom of the screen
     if (position.y + 56 + 120 > window.innerHeight) {
       popupPosition.top = position.y - 120
       popupPosition.transformOrigin = "bottom left"
     }
 
-    // Check if popup would go off the right of the screen
     if (position.x + 220 > window.innerWidth) {
-      popupPosition.left = position.x - 220 + 100 // Adjust to keep it partially under the indicator
+      popupPosition.left = position.x - 220 + 100 
       popupPosition.transformOrigin = `${popupPosition.transformOrigin.split(" ")[0]} right`
     }
 
@@ -193,57 +190,34 @@ const FloatingIndicator = () => {
   const popupPosition = calculatePopupPosition()
 
   return (
-    <div className="fixed z-[9999]">
-      {/* Permission Alert */}
-      {showPermissionAlert && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-90 backdrop-blur-md p-4 rounded-lg border border-purple-500 shadow-lg z-[10000] w-80">
-          <div className="flex items-center gap-2 mb-4 text-purple-300">
-            <ShieldAlert className="h-5 w-5" />
-            <h3 className="font-semibold">Permissions Required</h3>
-          </div>
-          <p className="text-white text-sm mb-4">
-            To record your screen and audio, the extension needs additional permissions.
-          </p>
-          <div className="flex gap-2">
-            <button 
-              onClick={requestPermissions}
-              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded text-sm font-medium flex-1"
-            >
-              Grant Permissions
-            </button>
-            <button 
-              onClick={() => setShowPermissionAlert(false)}
-              className="border border-purple-500/50 hover:bg-purple-800/30 text-purple-300 px-3 py-2 rounded text-sm"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Main Indicator */}
+    <div className="fixed w-[200px] z-[999]">
       <div
         ref={indicatorRef}
-        className="fixed bg-black bg-opacity-80 text-white rounded-full py-2 px-4 shadow-[0_0_15px_rgba(149,76,233,0.6)] cursor-move border-2 border-purple-500 backdrop-blur-md flex items-center gap-2"
+        className="fixed bg-black bg-opacity-80 text-white rounded-full py-3 px-4 shadow-lg border-2 border-purple-500 backdrop-blur-md flex items-center gap-2"
         style={{
           left: `${position.x}px`,
           top: `${position.y}px`,
+          boxShadow: "0 0 15px rgba(149, 76, 233, 0.6)",
+          cursor: "move",
+          zIndex: 9999
         }}
         onMouseDown={handleMouseDown}
         onClick={isDragging ? undefined : toggleControls}
       >
         <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></div>
         <Clock className="h-4 w-4 text-white" />
-        <span className="font-mono font-semibold text-purple-200">{formatTime(recordingTime)}</span>
+        <span className="font-mono font-semibold text-purple-200 text-sm">{formatTime(recordingTime)}</span>
       </div>
 
       {/* Controls Popup */}
       {showControls && (
         <div
-          className="fixed bg-black bg-opacity-80 backdrop-blur-md rounded-lg border border-purple-500/50 p-4 w-56 shadow-[0_0_20px_rgba(149,76,233,0.4)] z-[9999]"
+          className="fixed bg-black bg-opacity-80 backdrop-blur-md rounded-lg border border-purple-500 p-4 w-56 shadow-lg"
           style={{
             top: `${popupPosition.top}px`,
             left: `${popupPosition.left}px`,
+            zIndex: 9999,
+            boxShadow: "0 0 20px rgba(149, 76, 233, 0.4)"
           }}
         >
           <div className="flex justify-between items-center mb-3">
@@ -258,14 +232,15 @@ const FloatingIndicator = () => {
           <div className="flex flex-col gap-2">
             <button
               onClick={stopRecording}
-              className="w-full py-2 px-3 bg-red-600 hover:bg-red-500 text-white rounded flex items-center justify-center gap-2 text-sm font-medium transition-colors shadow-[0_0_10px_rgba(239,68,68,0.3)]"
+              className="w-full py-2 px-3 bg-red-600 hover:bg-red-500 text-white rounded flex items-center justify-center gap-2 text-sm font-medium transition-colors"
+              style={{boxShadow: "0 0 10px rgba(239, 68, 68, 0.3)"}}
             >
               <MicOff className="h-4 w-4" />
               Stop Recording
             </button>
             <button
               onClick={toggleControls}
-              className="w-full py-2 px-3 bg-transparent border border-purple-500/50 hover:bg-purple-800/30 text-purple-300 hover:text-white rounded flex items-center justify-center gap-2 text-sm font-medium transition-colors"
+              className="w-full py-2 px-3 bg-transparent border border-purple-500 border-opacity-50 hover:bg-purple-800 hover:bg-opacity-30 text-purple-300 hover:text-white rounded flex items-center justify-center gap-2 text-sm font-medium transition-colors"
             >
               <Play className="h-4 w-4" />
               Continue Recording
@@ -279,25 +254,39 @@ const FloatingIndicator = () => {
 
 // Function to inject the floating indicator into the page
 const injectFloatingIndicator = () => {
+  console.log('INjector is called')
+  console.log("Injecting floating indicator")
+  
+  if (document.getElementById("chrome-recording-indicator")) {
+    console.log("Floating indicator already exists")
+    return
+  }
+  
   const container = document.createElement("div")
   container.id = "chrome-recording-indicator"
   document.body.appendChild(container)
 
   const root = createRoot(container)
   root.render(<FloatingIndicator />)
+  
+  console.log("Floating indicator injected successfully")
 }
 
 const removeFloatingIndicator = () => {
+  console.log("Removing floating indicator")
   const container = document.getElementById("chrome-recording-indicator")
   if (container) {
     document.body.removeChild(container)
   }
 }
 
-// Create a toggle button for the recording
 const createRecorderButton = () => {
+  console.log("Creating recorder button")
   const existingButton = document.getElementById('chrome-record-button')
-  if (existingButton) return // Don't create multiple buttons
+  if (existingButton) {
+    console.log("Recorder button already exists")
+    return
+  }
   
   const button = document.createElement('button')
   button.id = 'chrome-record-button'
@@ -305,6 +294,7 @@ const createRecorderButton = () => {
   button.className = 'fixed top-4 right-4 z-[9998] px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg shadow-lg font-semibold flex items-center justify-center gap-2 transition-colors'
   
   button.onclick = () => {
+    console.log("Record button clicked")
     // Get current tab ID
     if (typeof chrome !== "undefined" && chrome.tabs && chrome.runtime) {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -313,16 +303,18 @@ const createRecorderButton = () => {
           chrome.runtime.sendMessage({
             action: "startRecording",
             tabId: currentTab.id,
-            email: localStorage.getItem("userEmail") || "user@example.com"  // Default email if not set
+            email: localStorage.getItem("userEmail") || "user@example.com"
           })
         }
       })
+      console.log('inside the chrome checking api')
     } else {
       console.log("Chrome API not available, can't start recording")
     }
   }
   
   document.body.appendChild(button)
+  console.log("Recorder button created and appended to body")
 }
 
 export default defineContentScript({
@@ -330,24 +322,43 @@ export default defineContentScript({
   main() {
     console.log('Meet recorder content script initialized');
     
-    // Create the recording button
-    setTimeout(createRecorderButton, 1000) // Delay to ensure DOM is ready
+    // Add a visible marker to confirm script is running
+    const debugMarker = document.createElement('div');
+    debugMarker.id = 'meet-recorder-debug-marker';
+    debugMarker.style.position = 'fixed';
+    debugMarker.style.bottom = '10px';
+    debugMarker.style.right = '10px';
+    debugMarker.style.backgroundColor = 'rgba(147, 51, 234, 0.5)';
+    debugMarker.style.color = 'white';
+    debugMarker.style.padding = '5px 10px';
+    debugMarker.style.borderRadius = '4px';
+    debugMarker.style.fontSize = '12px';
+    debugMarker.style.zIndex = '9999';
+    debugMarker.textContent = 'Meet Recorder Active';
+    document.body.appendChild(debugMarker);
+    
+    // Create the recording button with delay to ensure DOM is ready
+    setTimeout(createRecorderButton, 1000)
     
     // Check if recording is already in progress
     if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.session) {
-      chrome.storage.session.get("recording", (result) => {
+      chrome.storage.session.get(["recording", "recordingStartTime"], (result) => {
+        console.log("Checking recording status:", result)
         if (result?.recording) {
+          console.log("Recording is active, injecting indicator")
           injectFloatingIndicator()
         }
       })
     }
     
-    // Safely check if Chrome API is available
     if (typeof chrome !== "undefined" && chrome.runtime) {
       chrome.runtime.onMessage.addListener((message) => {
+        console.log("Content script received message:", message)
         if (message.action === "startRecording") {
+          console.log("Starting recording from message")
           injectFloatingIndicator()
         } else if (message.action === "stopRecording") {
+          console.log("Stopping recording from message")
           removeFloatingIndicator()
         }
       })
