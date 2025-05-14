@@ -1,7 +1,7 @@
 import type React from "react"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { createRoot } from "react-dom/client"
-import { Clock, MicOff, Play, X, Zap } from "lucide-react"
+import { Clock, MicOff, Play, X, Zap, ShieldAlert } from "lucide-react"
 
 // Floating recording indicator component
 const FloatingIndicator = () => {
@@ -10,6 +10,7 @@ const FloatingIndicator = () => {
   const [position, setPosition] = useState({ x: 20, y: 20 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [showPermissionAlert, setShowPermissionAlert] = useState(false)
   const indicatorRef = useRef<HTMLDivElement>(null)
   const recordingStartTimeRef = useRef<number>(Date.now())
 
@@ -46,6 +47,10 @@ const FloatingIndicator = () => {
         if (message.action === "stopRecording") {
           clearInterval(interval)
           removeFloatingIndicator()
+        } else if (message.action === "needPermissions") {
+          setShowPermissionAlert(true)
+        } else if (message.action === "permissionsGranted") {
+          setShowPermissionAlert(false)
         }
       }
 
@@ -75,6 +80,21 @@ const FloatingIndicator = () => {
     if (!isDragging) {
       setShowControls(!showControls)
     }
+  }
+
+  const requestPermissions = () => {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const currentTab = tabs[0]
+        if (currentTab?.id) {
+          chrome.runtime.sendMessage({
+            action: "requestPermissions",
+            tabId: currentTab.id
+          })
+        }
+      })
+    }
+    setShowPermissionAlert(false)
   }
 
   const stopRecording = () => {
@@ -174,6 +194,34 @@ const FloatingIndicator = () => {
 
   return (
     <div className="fixed z-[9999]">
+      {/* Permission Alert */}
+      {showPermissionAlert && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-90 backdrop-blur-md p-4 rounded-lg border border-purple-500 shadow-lg z-[10000] w-80">
+          <div className="flex items-center gap-2 mb-4 text-purple-300">
+            <ShieldAlert className="h-5 w-5" />
+            <h3 className="font-semibold">Permissions Required</h3>
+          </div>
+          <p className="text-white text-sm mb-4">
+            To record your screen and audio, the extension needs additional permissions.
+          </p>
+          <div className="flex gap-2">
+            <button 
+              onClick={requestPermissions}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded text-sm font-medium flex-1"
+            >
+              Grant Permissions
+            </button>
+            <button 
+              onClick={() => setShowPermissionAlert(false)}
+              className="border border-purple-500/50 hover:bg-purple-800/30 text-purple-300 px-3 py-2 rounded text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Indicator */}
       <div
         ref={indicatorRef}
         className="fixed bg-black bg-opacity-80 text-white rounded-full py-2 px-4 shadow-[0_0_15px_rgba(149,76,233,0.6)] cursor-move border-2 border-purple-500 backdrop-blur-md flex items-center gap-2"
@@ -184,11 +232,12 @@ const FloatingIndicator = () => {
         onMouseDown={handleMouseDown}
         onClick={isDragging ? undefined : toggleControls}
       >
-        <div className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse"></div>
-        <Clock className="h-4 w-4 text-purple-300" />
+        <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></div>
+        <Clock className="h-4 w-4 text-white" />
         <span className="font-mono font-semibold text-purple-200">{formatTime(recordingTime)}</span>
       </div>
 
+      {/* Controls Popup */}
       {showControls && (
         <div
           className="fixed bg-black bg-opacity-80 backdrop-blur-md rounded-lg border border-purple-500/50 p-4 w-56 shadow-[0_0_20px_rgba(149,76,233,0.4)] z-[9999]"
@@ -257,16 +306,20 @@ const createRecorderButton = () => {
   
   button.onclick = () => {
     // Get current tab ID
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const currentTab = tabs[0]
-      if (currentTab?.id) {
-        chrome.runtime.sendMessage({
-          action: "startRecording",
-          tabId: currentTab.id,
-          email: localStorage.getItem("userEmail") || "user@example.com"  // Default email if not set
-        })
-      }
-    })
+    if (typeof chrome !== "undefined" && chrome.tabs && chrome.runtime) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const currentTab = tabs[0]
+        if (currentTab?.id) {
+          chrome.runtime.sendMessage({
+            action: "startRecording",
+            tabId: currentTab.id,
+            email: localStorage.getItem("userEmail") || "user@example.com"  // Default email if not set
+          })
+        }
+      })
+    } else {
+      console.log("Chrome API not available, can't start recording")
+    }
   }
   
   document.body.appendChild(button)

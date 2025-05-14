@@ -1,7 +1,5 @@
-"use client"
-
 import { useState, useEffect } from "react"
-import { ChevronRight, Mail, Mic, MicOff, Play, Settings, X, Zap } from "lucide-react"
+import { AlertCircle, ChevronRight, Mail, Mic, MicOff, Play, Settings, X, Zap, Check, ShieldAlert } from "lucide-react"
 import DraggableIndicator from "./DraggableIndicatorComponent"
 import { Button, Input } from "@mui/material"
 import { calculatePopupPosition } from "../utils/calculate-popup-postion.utils"
@@ -14,6 +12,8 @@ export default function RecordingExtension() {
   const [showFloatingControls, setShowFloatingControls] = useState<boolean>(false)
   const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null)
   const [indicatorPosition, setIndicatorPosition] = useState({ x: 20, y: 20 })
+  const [permissionStatus, setPermissionStatus] = useState<"idle" | "requesting" | "granted" | "denied">("idle")
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // Add this useEffect to listen for position changes
   useEffect(() => {
@@ -35,6 +35,32 @@ export default function RecordingExtension() {
 
     return () => {
       window.removeEventListener("floatingIndicatorMove", handlePositionChange as EventListener)
+    }
+  }, [])
+
+  useEffect(() => {
+    // Listen for messages from background script
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      const messageListener = (message: any) => {
+        if (message.action === "needPermissions") {
+          setPermissionStatus("requesting")
+          setIsRecording(false)
+        } else if (message.action === "permissionsGranted") {
+          setPermissionStatus("granted")
+          setErrorMessage(null)
+        } else if (message.action === "permissionsDenied") {
+          setPermissionStatus("denied")
+        } else if (message.action === "recordingError") {
+          setErrorMessage(message.error)
+          setIsRecording(false)
+        }
+      }
+
+      chrome.runtime.onMessage.addListener(messageListener)
+
+      return () => {
+        chrome.runtime.onMessage.removeListener(messageListener)
+      }
     }
   }, [])
 
@@ -87,7 +113,19 @@ export default function RecordingExtension() {
     }
   }
 
+  const requestPermissions = (tabId?: number) => {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      chrome.runtime.sendMessage({
+        action: "requestPermissions",
+        tabId: tabId
+      })
+    }
+  }
+
   const handleRecordClick = () => {
+    // Reset error state
+    setErrorMessage(null)
+    
     if (isRecording) {
       stopRecording()
     } else {
@@ -249,6 +287,23 @@ export default function RecordingExtension() {
     boxShadow: `0 0 15px rgba(${isRecording ? "239, 68, 68" : "149, 76, 233"}, 0.5)`,
   })
 
+  const permissionButtonStyles = {
+    width: "100%",
+    padding: "12px 16px",
+    borderRadius: "8px",
+    fontWeight: 600,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    transition: "all 300ms",
+    backgroundColor: "#2563eb",
+    color: "white",
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 0 15px rgba(37, 99, 235, 0.5)",
+  }
+
   const recordingTimeStyles = {
     textAlign: "center" as const,
     fontSize: "14px",
@@ -337,6 +392,62 @@ export default function RecordingExtension() {
     cursor: "pointer",
   }
 
+  const errorStyles = {
+    display: "flex", 
+    alignItems: "center", 
+    gap: "8px", 
+    backgroundColor: "rgba(220, 38, 38, 0.2)", 
+    padding: "10px", 
+    borderRadius: "6px", 
+    marginBottom: "16px",
+    fontSize: "14px"
+  }
+
+  const successStyles = {
+    display: "flex", 
+    alignItems: "center", 
+    gap: "8px", 
+    backgroundColor: "rgba(34, 197, 94, 0.2)", 
+    padding: "10px", 
+    borderRadius: "6px", 
+    marginBottom: "16px",
+    fontSize: "14px"
+  }
+
+  const renderPermissionUI = () => {
+    return (
+      <div style={flexColStyles}>
+        <div style={{
+          display: "flex", 
+          alignItems: "center", 
+          gap: "8px", 
+          backgroundColor: "rgba(37, 99, 235, 0.2)", 
+          padding: "10px", 
+          borderRadius: "6px", 
+          marginBottom: "8px"
+        }}>
+          <ShieldAlert style={{ height: "20px", width: "20px", color: "#93c5fd" }} />
+          <span style={{ fontSize: "14px" }}>This extension needs permissions to record your screen and audio</span>
+        </div>
+        
+        <button 
+          onClick={() => requestPermissions()} 
+          style={permissionButtonStyles}
+        >
+          <ShieldAlert style={{ height: "20px", width: "20px" }} />
+          Grant Permissions
+        </button>
+        
+        <button 
+          onClick={() => setPermissionStatus("idle")} 
+          style={continueButtonStyles}
+        >
+          Cancel
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div style={containerStyles}>
       <div style={patternOverlayStyles}></div>
@@ -414,21 +525,44 @@ export default function RecordingExtension() {
                   </button>
                 </div>
 
-                <button onClick={handleRecordClick} style={recordButtonStyles(isRecording)}>
-                  {isRecording ? (
-                    <>
-                      <MicOff style={{ height: "20px", width: "20px" }} />
-                      Stop Recording
-                    </>
-                  ) : (
-                    <>
-                      <Mic style={{ height: "20px", width: "20px" }} />
-                      Start Recording
-                    </>
-                  )}
-                </button>
+                {/* Error message */}
+                {errorMessage && (
+                  <div style={errorStyles}>
+                    <AlertCircle style={{ height: "18px", width: "18px", color: "#ef4444" }} />
+                    <span>{errorMessage}</span>
+                  </div>
+                )}
 
-                {isRecording && <div style={recordingTimeStyles}>Recording time: {formatTime(recordingTime)}</div>}
+                {/* Permission granted message */}
+                {permissionStatus === "granted" && (
+                  <div style={successStyles}>
+                    <Check style={{ height: "18px", width: "18px", color: "#22c55e" }} />
+                    <span>Permissions granted! You can now start recording.</span>
+                  </div>
+                )}
+
+                {/* Show permission UI or regular controls */}
+                {permissionStatus === "requesting" ? (
+                  renderPermissionUI()
+                ) : (
+                  <>
+                    <button onClick={handleRecordClick} style={recordButtonStyles(isRecording)}>
+                      {isRecording ? (
+                        <>
+                          <MicOff style={{ height: "20px", width: "20px" }} />
+                          Stop Recording
+                        </>
+                      ) : (
+                        <>
+                          <Mic style={{ height: "20px", width: "20px" }} />
+                          Start Recording
+                        </>
+                      )}
+                    </button>
+                    
+                    {isRecording && <div style={recordingTimeStyles}>Recording time: {formatTime(recordingTime)}</div>}
+                  </>
+                )}
               </div>
             </div>
           </div>

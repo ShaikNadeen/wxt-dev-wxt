@@ -1,100 +1,179 @@
 import React, { useEffect } from 'react';
 
 const App: React.FC = () => {
-
-  console.log('inside the offscreen')
+  console.log('Inside the offscreen document')
+  
   useEffect(() => {
-    console.log('inside app.tsx offscreen is this even called')
-    chrome.runtime.onMessage.addListener((message) => {
+    console.log('Offscreen App.tsx useEffect initialized')
+    
+    const handleMessages = async (message: any) => {
       if (message.target === 'offscreen') {
+        console.log('Received message in offscreen:', message.type)
         switch (message.type) {
           case 'start-recording':
-            console.error('OFFSCREEN start-recording');
-            startRecording(message.data, message.orgId, message.micStreamId);
+            try {
+              console.log('Starting recording with stream ID:', message.data)
+              await startRecording(message.data, message.orgId, message.micStreamId);
+            } catch (error) {
+              console.error('Error starting recording:', error)
+              // Send error back to background script
+              chrome.runtime.sendMessage({
+                action: 'recordingError',
+                error: error instanceof Error ? error.message : 'Unknown error starting recording'
+              });
+            }
             break;
           case 'stop-recording':
-            console.error('OFFSCREEN stop-recording');
+            console.log('Stopping recording')
             stopRecording();
             break;
           default:
-            throw new Error(`Unrecognized message: ${message.type}`);
+            console.error(`Unrecognized message: ${message.type}`);
         }
       }
-    });
+    };
+
+    chrome.runtime.onMessage.addListener(handleMessages);
+    
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleMessages);
+    };
   }, []);
 
   let recorder: MediaRecorder | undefined;
   let data: Blob[] = [];
 
-
   async function startRecording(streamId: string, orgId: string, micStreamId: string) {
-    console.log('called offscreen',streamId)
+    console.log('Starting recording with stream ID:', streamId)
+    
     if (recorder?.state === 'recording') {
       throw new Error('Called startRecording while recording is in progress.');
     }
-    const media = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        mandatory: {
-          chromeMediaSource: 'tab',
-          chromeMediaSourceId: streamId,
+    
+    try {
+      // Request tab capture with error handling
+      const mediaOptions = {
+        audio: {
+          mandatory: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: streamId,
+          },
+          includeSelf: true
         },
-        includeSelf:true
-      },
-      video: false,
-    } as any);
-    console.error('OFFSCREEN media', media);
+        video: false,
+      } as any;
+      
+      console.log('Requesting tab media with options:', JSON.stringify(mediaOptions));
+      const media = await navigator.mediaDevices.getUserMedia(mediaOptions);
+      console.log('Tab media stream obtained successfully');
 
-    const MicMedia=await navigator.mediaDevices.getUserMedia({
-      audio:true,
-      video:false
-    })
-    console.log('Offscreen mic media',MicMedia);
+      // Request microphone with error handling
+      console.log('Requesting microphone access');
+      const micMedia = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false
+      });
+      console.log('Microphone access granted');
 
-    const output = new AudioContext();
-    const source = output.createMediaStreamSource(media);
-    const micAudio=output.createMediaStreamSource(MicMedia);
+      // Create audio context and mix streams
+      const output = new AudioContext();
+      const source = output.createMediaStreamSource(media);
+      const micAudio = output.createMediaStreamSource(micMedia);
 
-    const destination = output.createMediaStreamDestination();
-    source.connect(output.destination);
-    source.connect(destination);
-    micAudio.connect(destination);
-    console.error('OFFSCREEN output', output);
+      const destination = output.createMediaStreamDestination();
+      source.connect(output.destination);
+      source.connect(destination);
+      micAudio.connect(destination);
+      console.log('Audio streams connected and mixed');
 
-    // Start recording.
-    recorder = new MediaRecorder(destination.stream, { mimeType: 'video/webm' });
-    recorder.ondataavailable = (event: any) => data.push(event.data);
-    recorder.onstop = async () => {
-      const blob = new Blob(data, { type: 'video/webm' });
+      // Start recording with error handling
+      recorder = new MediaRecorder(destination.stream, { mimeType: 'video/webm' });
+      
+      recorder.ondataavailable = (event: any) => {
+        console.log('Data available event:', event.data.size);
+        data.push(event.data);
+      };
+      
+      recorder.onerror = (event: any) => {
+        console.error('MediaRecorder error:', event);
+        chrome.runtime.sendMessage({
+          action: 'recordingError',
+          error: 'MediaRecorder error: ' + (event.error?.message || 'Unknown error')
+        });
+      };
+      
+      recorder.onstop = async () => {
+        console.log('Recording stopped');
+        try {
+          const blob = new Blob(data, { type: 'video/webm' });
+          console.log('Created blob of size:', blob.size);
 
-      // delete local state of recording
+          // Delete local state of recording
+          chrome.runtime.sendMessage({
+            action: 'set-recording',
+            recording: false,
+          });
+
+          // Open the recording in a new tab
+          window.open(URL.createObjectURL(blob), '_blank');
+
+          recorder = undefined;
+          data = [];
+        } catch (error) {
+          console.error('Error in recorder.onstop:', error);
+          chrome.runtime.sendMessage({
+            action: 'recordingError',
+            error: error instanceof Error ? error.message : 'Error handling recording data'
+          });
+        }
+      };
+      
+      // Start the recording
+      recorder.start();
+      console.log('MediaRecorder started:', recorder.state);
+
+      // Notify background that recording has started
       chrome.runtime.sendMessage({
         action: 'set-recording',
-        recording: false,
+        recording: true,
       });
-
-      window.open(URL.createObjectURL(blob), '_blank');
-
-      recorder = undefined;
-      data = [];
-    };
-    recorder.start();
-
-    console.error('OFFSCREEN recorder started', recorder);
-
-    chrome.runtime.sendMessage({
-      action: 'set-recording',
-      recording: true,
-    });
-    window.location.hash = 'recording';
+      
+      window.location.hash = 'recording';
+    } catch (error) {
+      console.error('Error in startRecording:', error);
+      throw new Error(`Failed to start recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   async function stopRecording() {
-    recorder?.stop();
-    recorder?.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
-    window.location.hash = '';
+    console.log('Stopping recording, recorder state:', recorder?.state);
+    
+    try {
+      if (recorder && recorder.state === 'recording') {
+        recorder.stop();
+        console.log('Recorder stopped');
+        
+        if (recorder.stream) {
+          recorder.stream.getTracks().forEach((t: MediaStreamTrack) => {
+            console.log('Stopping track:', t.kind, t.label);
+            t.stop();
+          });
+        }
+      } else {
+        console.log('No active recorder to stop');
+      }
+      
+      window.location.hash = '';
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      chrome.runtime.sendMessage({
+        action: 'recordingError',
+        error: error instanceof Error ? error.message : 'Error stopping recording'
+      });
+    }
   }
 
-  return <div></div>;
+  return <div>Offscreen Recording Document</div>;
 };
 
 export default App;
