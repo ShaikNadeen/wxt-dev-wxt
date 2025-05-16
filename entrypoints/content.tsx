@@ -31,7 +31,6 @@ const RecordingControlPanel = () => {
     if (savedPosition) {
       try {
         const parsedPosition = JSON.parse(savedPosition)
-        console.log("Loaded saved position:", parsedPosition)
         setPosition(parsedPosition)
       } catch (e) {
         console.error("Failed to parse saved position", e)
@@ -63,6 +62,7 @@ const RecordingControlPanel = () => {
     }
 
     if (typeof chrome !== "undefined" && chrome.runtime) {
+      console.log('inside this event listener')
       chrome.runtime.onMessage.addListener(messageListener)
     }
 
@@ -112,6 +112,8 @@ const RecordingControlPanel = () => {
 
   const handleStartRecording = () => {
     console.log("Starting recording")
+    console.log('inside the handleStartRecording',chrome.runtime)
+    console.log("inside chrome tabs",chrome.tabs)
     if (typeof chrome !== "undefined" && chrome.tabs && chrome.runtime) {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const currentTab = tabs[0]
