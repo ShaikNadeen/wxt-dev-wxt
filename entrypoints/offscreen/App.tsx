@@ -51,7 +51,6 @@ const App: React.FC = () => {
     }
     
     try {
-      // Request tab capture with error handling
       const mediaOptions = {
         audio: {
           mandatory: {

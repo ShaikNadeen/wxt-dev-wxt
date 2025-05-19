@@ -16,7 +16,8 @@ export default defineConfig({
       'storage',
       'cookies',
       'scripting',
-      'offscreen'
+      'offscreen',
+      'audio'
     ],
     host_permissions: [
       'http://localhost/*',

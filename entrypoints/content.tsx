@@ -37,8 +37,8 @@ const RecordingControlPanel = () => {
       }
     }
 
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.session) {
-      chrome.storage.session.get(["recording", "recordingStartTime"], (result) => {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["recording", "recordingStartTime"], (result) => {
         console.log("Retrieved recording status from storage:", result)
         if (result?.recording) {
           setIsRecording(true)
@@ -112,23 +112,18 @@ const RecordingControlPanel = () => {
 
   const handleStartRecording = () => {
     console.log("Starting recording")
-    console.log('inside the handleStartRecording',chrome.runtime)
-    console.log("inside chrome tabs",chrome.tabs)
-    if (typeof chrome !== "undefined" && chrome.tabs && chrome.runtime) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const currentTab = tabs[0]
-        if (currentTab?.id) {
-          chrome.runtime.sendMessage({
-            action: "startRecording",
-            tabId: currentTab.id,
-            email: localStorage.getItem("userEmail") || "user@example.com"
-          })
-          setIsRecording(true)
-          recordingStartTimeRef.current = Date.now()
-          setRecordingTime(0)
-          startTimer()
-        }
-      })
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+   const response=chrome.runtime.sendMessage({
+    action:'startRecording',
+    email:localStorage.getItem('userEmail')||'user@example.com'
+   },(response)=>{
+    console.log('start Recording',response)
+   })
+
+   setIsRecording(true)
+    recordingStartTimeRef.current = Date.now()
+    setRecordingTime(0)
+    startTimer()
     } else {
       console.log("Chrome API not available, simulating recording start")
       setIsRecording(true)
@@ -140,20 +135,14 @@ const RecordingControlPanel = () => {
 
   const handleStopRecording = () => {
     console.log("Stopping recording")
-    if (typeof chrome !== "undefined" && chrome.tabs && chrome.runtime) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const currentTab = tabs[0]
-        if (currentTab?.id) {
-          chrome.runtime.sendMessage({
-            action: "stopRecording",
-            tabId: currentTab.id
-          })
-          setIsRecording(false)
-          stopTimer()
-          setRecordingTime(0)
-          setShowStopPopup(false)
-        }
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      chrome.runtime.sendMessage({
+        action:'stopRecording',
       })
+      setIsRecording(false);
+      stopTimer();
+      setRecordingTime(0)
+      setShowStopPopup(false)
     } else {
       console.log("Chrome API not available, simulating recording stop")
       setIsRecording(false)
@@ -426,7 +415,6 @@ const injectControlPanel = () => {
     return
   }
   
-  // Create container
   const container = document.createElement("div")
   container.id = "meet-recording-control-panel"
   container.style.position = "fixed"
@@ -477,7 +465,6 @@ export default defineContentScript({
         console.log("Content script received message:", message);
         
         if (message.action === "startRecording") {
-          // Ensure control panel is injected
           if (!document.getElementById("meet-recording-control-panel")) {
             injectControlPanel()
           }
