@@ -7,20 +7,6 @@ export default defineBackground({
       chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
     }
 
-
-    // Request the necessary permissions
-    const requestPermissions = async (): Promise<boolean> => {
-      try {
-        const granted = await chrome.permissions.request({
-          permissions: ['activeTab', 'tabCapture', 'tabs', 'storage','offscreen','audio']
-        });
-        return granted;
-      } catch (error) {
-        console.error('Error requesting permissions:', error);
-        return false;
-      }
-    };
-
     const startRecordingOffscreen = async (tabId: number) => {
       console.log('Starting recording process:', tabId);
       
@@ -133,19 +119,6 @@ export default defineBackground({
         chrome.storage.session.set({ recording: message.recording });
       } else if (message.action === 'get-recording-status') {
         sendResponse({ isRecording, recordingStartTime });
-        return true;
-      } else if (message.action === 'requestPermissions') {
-        requestPermissions().then(granted => {
-          console.log('Permissions granted:', granted);
-          if (granted) {
-            chrome.runtime.sendMessage({ action: "permissionsGranted" });
-            if (message.tabId) {
-              startRecordingOffscreen(message.tabId);
-            }
-          } else {
-            chrome.runtime.sendMessage({ action: "permissionsDenied" });
-          }
-        });
         return true;
       }
     });
