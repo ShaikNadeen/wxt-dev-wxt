@@ -7,7 +7,7 @@ import { Clock, Pause, StopCircle, X, Play, Zap } from "lucide-react"
 const RecordingControlPanel = () => {
   console.log("Rendering RecordingControlPanel component")
   const [position, setPosition] = useState(() => {
-  const x = 10 // left edg
+  const x = 10 
   const y = Math.max(window.innerHeight - 70, 0) 
   console.log(`Initial position: x=${x}, y=${y}`)
   return { x, y }
@@ -25,9 +25,7 @@ const RecordingControlPanel = () => {
 
   useEffect(() => {
     console.log("Control panel mounted")
-    
-    // Load saved position on mount
-    const savedPosition = localStorage.getItem("controlPanelPosition")
+      const savedPosition = localStorage.getItem("controlPanelPosition")
     if (savedPosition) {
       try {
         const parsedPosition = JSON.parse(savedPosition)

@@ -1,56 +1,81 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 const App: React.FC = () => {
-  console.log('Inside the offscreen document')
+  console.log('Inside the offscreen document');
+  
+  // Use refs to maintain state across message handling
+  const recorderRef = useRef<MediaRecorder | undefined>(undefined);
+  const dataRef = useRef<Blob[]>([]);
   
   useEffect(() => {
-    console.log('Offscreen App.tsx useEffect initialized')
+    console.log('Offscreen App.tsx useEffect initialized');
     
-    const handleMessages = async (message: any) => {
+    const handleMessages = async (message: any, sender: any, sendResponse: (response?: any) => void) => {
+      console.log('Offscreen received message:', message);
+      
       if (message.target === 'offscreen') {
-        console.log('Received message in offscreen:', message.type)
+        console.log('Handling offscreen message:', message.type);
+        
         switch (message.type) {
           case 'start-recording':
             try {
-              console.log('Starting recording with stream ID:', message.data)
-              await startRecording(message.data, message.orgId, message.micStreamId);
+              console.log('Starting recording with stream ID:', message.data);
+              await startRecording(message.data);
+              sendResponse({ success: true });
             } catch (error) {
-              console.error('Error starting recording:', error)
-              // Send error back to background script
+              console.error('Error starting recording:', error);
               chrome.runtime.sendMessage({
                 action: 'recordingError',
                 error: error instanceof Error ? error.message : 'Unknown error starting recording'
               });
+              sendResponse({ success: false, error: String(error) });
             }
             break;
+            
           case 'stop-recording':
-            console.log('Stopping recording')
-            stopRecording();
+            try {
+              console.log('Stopping recording');
+              stopRecording();
+              sendResponse({ success: true });
+            } catch (error) {
+              console.error('Error stopping recording:', error);
+              sendResponse({ success: false, error: String(error) });
+            }
             break;
+            
           default:
             console.error(`Unrecognized message: ${message.type}`);
+            sendResponse({ success: false, error: 'Unrecognized message type' });
         }
+        return true; // Keep the message channel open for async response
       }
+      
+      return false; // Not handling this message
     };
 
     chrome.runtime.onMessage.addListener(handleMessages);
     
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessages);
+      // Ensure recording is stopped when component unmounts
+      if (recorderRef.current?.state === 'recording') {
+        stopRecording();
+      }
     };
   }, []);
 
-  let recorder: MediaRecorder | undefined;
-  let data: Blob[] = [];
-
-  async function startRecording(streamId: string, orgId: string, micStreamId: string) {
-    console.log('Starting recording with stream ID:', streamId)
+  async function startRecording(streamId: string) {
+    console.log('Starting recording with stream ID:', streamId);
     
-    if (recorder?.state === 'recording') {
-      throw new Error('Called startRecording while recording is in progress.');
+    if (recorderRef.current?.state === 'recording') {
+      console.log('Recording already in progress, stopping current recording first');
+      stopRecording();
     }
     
     try {
+      // Reset data array
+      dataRef.current = [];
+      
       const mediaOptions = {
         audio: {
           mandatory: {
@@ -71,29 +96,46 @@ const App: React.FC = () => {
       const micMedia = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: false
+      }).catch(error => {
+        console.warn('Could not get microphone access, continuing without it:', error);
+        return null;
       });
-      console.log('Microphone access granted');
+      
+      if (micMedia) {
+        console.log('Microphone access granted');
+      }
 
       // Create audio context and mix streams
       const output = new AudioContext();
       const source = output.createMediaStreamSource(media);
-      const micAudio = output.createMediaStreamSource(micMedia);
-
       const destination = output.createMediaStreamDestination();
+      
       source.connect(output.destination);
       source.connect(destination);
-      micAudio.connect(destination);
+      
+      // Only connect microphone if available
+      if (micMedia) {
+        const micAudio = output.createMediaStreamSource(micMedia);
+        micAudio.connect(destination);
+        console.log('Microphone audio connected');
+      }
+      
       console.log('Audio streams connected and mixed');
 
-      // Start recording with error handling
-      recorder = new MediaRecorder(destination.stream, { mimeType: 'video/webm' });
+      // Request at least 100ms of data every 100ms
+      recorderRef.current = new MediaRecorder(destination.stream, { 
+      mimeType: 'audio/webm;codecs=opus',
+        audioBitsPerSecond: 128000
+      });
       
-      recorder.ondataavailable = (event: any) => {
-        console.log('Data available event:', event.data.size);
-        data.push(event.data);
+      recorderRef.current.ondataavailable = (event: any) => {
+        if (event.data.size > 0) {
+          console.log('Data available event:', event.data.size);
+          dataRef.current.push(event.data);
+        }
       };
       
-      recorder.onerror = (event: any) => {
+      recorderRef.current.onerror = (event: any) => {
         console.error('MediaRecorder error:', event);
         chrome.runtime.sendMessage({
           action: 'recordingError',
@@ -101,23 +143,30 @@ const App: React.FC = () => {
         });
       };
       
-      recorder.onstop = async () => {
-        console.log('Recording stopped');
+      recorderRef.current.onstop = async () => {
+        console.log('Recording stopped, processing data chunks:', dataRef.current.length);
         try {
-          const blob = new Blob(data, { type: 'video/webm' });
-          console.log('Created blob of size:', blob.size);
+          if (dataRef.current.length > 0) {
+            const blob = new Blob(dataRef.current, { type: 'audio/webm' });
+            console.log('Created blob of size:', blob.size);
 
-          // Delete local state of recording
-          chrome.runtime.sendMessage({
-            action: 'set-recording',
-            recording: false,
-          });
+            chrome.runtime.sendMessage({
+              action: 'set-recording',
+              recording: false,
+            });
 
-          // Open the recording in a new tab
-          window.open(URL.createObjectURL(blob), '_blank');
+            if (blob.size > 0) {
+              window.open(URL.createObjectURL(blob), '_blank');
+            } else {
+              console.warn('Empty recording, not creating download');
+            }
+          } else {
+            console.warn('No data recorded');
+          }
 
-          recorder = undefined;
-          data = [];
+          // Clear state
+          recorderRef.current = undefined;
+          dataRef.current = [];
         } catch (error) {
           console.error('Error in recorder.onstop:', error);
           chrome.runtime.sendMessage({
@@ -127,9 +176,8 @@ const App: React.FC = () => {
         }
       };
       
-      // Start the recording
-      recorder.start();
-      console.log('MediaRecorder started:', recorder.state);
+      recorderRef.current.start(100);
+      console.log('MediaRecorder started:', recorderRef.current.state);
 
       // Notify background that recording has started
       chrome.runtime.sendMessage({
@@ -144,16 +192,16 @@ const App: React.FC = () => {
     }
   }
 
-  async function stopRecording() {
-    console.log('Stopping recording, recorder state:', recorder?.state);
+  function stopRecording() {
+    console.log('Stopping recording, recorder state:', recorderRef.current?.state);
     
     try {
-      if (recorder && recorder.state === 'recording') {
-        recorder.stop();
+      if (recorderRef.current && recorderRef.current.state === 'recording') {
+        recorderRef.current.stop();
         console.log('Recorder stopped');
         
-        if (recorder.stream) {
-          recorder.stream.getTracks().forEach((t: MediaStreamTrack) => {
+        if (recorderRef.current.stream) {
+          recorderRef.current.stream.getTracks().forEach((t: MediaStreamTrack) => {
             console.log('Stopping track:', t.kind, t.label);
             t.stop();
           });

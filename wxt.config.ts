@@ -24,6 +24,11 @@ export default defineConfig({
       '*://*.google.com/*',
       '*://meet.google.com/*'
     ],
+    action: {
+  default_icon: "icon/16.png",
+  default_title: "Start Recording"
+},
+
     web_accessible_resources: [
       {
         resources: ['entrypoints/offscreen/*'],
