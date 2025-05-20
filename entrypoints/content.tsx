@@ -7,13 +7,12 @@ import { Clock, Pause, StopCircle, X, Play, Zap } from "lucide-react"
 const RecordingControlPanel = () => {
   console.log("Rendering RecordingControlPanel component")
   const [position, setPosition] = useState(() => {
-  const x = 10 
-  const y = Math.max(window.innerHeight - 70, 0) 
-  console.log(`Initial position: x=${x}, y=${y}`)
-  return { x, y }
-})
+    const x = 10 
+    const y = Math.max(window.innerHeight - 70, 0) 
+    console.log(`Initial position: x=${x}, y=${y}`)
+    return { x, y }
+  })
 
-  
   const [recordingTime, setRecordingTime] = useState<number>(0)
   const [isRecording, setIsRecording] = useState<boolean>(false)
   const [showStopPopup, setShowStopPopup] = useState<boolean>(false)
@@ -25,7 +24,7 @@ const RecordingControlPanel = () => {
 
   useEffect(() => {
     console.log("Control panel mounted")
-      const savedPosition = localStorage.getItem("controlPanelPosition")
+    const savedPosition = localStorage.getItem("controlPanelPosition")
     if (savedPosition) {
       try {
         const parsedPosition = JSON.parse(savedPosition)
@@ -111,17 +110,17 @@ const RecordingControlPanel = () => {
   const handleStartRecording = () => {
     console.log("Starting recording")
     if (typeof chrome !== "undefined" && chrome.runtime) {
-   const response=chrome.runtime.sendMessage({
-    action:'startRecording',
-    email:localStorage.getItem('userEmail')||'user@example.com'
-   },(response)=>{
-    console.log('start Recording',response)
-   })
+      const response = chrome.runtime.sendMessage({
+        action: 'startRecording',
+        email: localStorage.getItem('userEmail') || 'user@example.com'
+      }, (response) => {
+        console.log('start Recording', response)
+      })
 
-   setIsRecording(true)
-    recordingStartTimeRef.current = Date.now()
-    setRecordingTime(0)
-    startTimer()
+      setIsRecording(true)
+      recordingStartTimeRef.current = Date.now()
+      setRecordingTime(0)
+      startTimer()
     } else {
       console.log("Chrome API not available, simulating recording start")
       setIsRecording(true)
@@ -135,7 +134,7 @@ const RecordingControlPanel = () => {
     console.log("Stopping recording")
     if (typeof chrome !== "undefined" && chrome.runtime) {
       chrome.runtime.sendMessage({
-        action:'stopRecording',
+        action: 'stopRecording',
       })
       setIsRecording(false);
       stopTimer();
@@ -241,62 +240,109 @@ const RecordingControlPanel = () => {
           left: `${position.x}px`,
           top: `${position.y}px`,
           zIndex: 99999,
-          width: "300px",
-          backgroundColor: "white",
-          border: "2px solid black",
-          borderRadius: "24px",
-          padding: "8px",
-          display: "flex",
-          alignItems: "center",
           cursor: "move",
-          boxShadow: "0 4px 8px rgba(0,0,0,0.2)"
+          background: "linear-gradient(to right, #f97316, #f59e0b, #ec4899)",
+          borderRadius: "0.75rem",
+          padding: "0.5rem",
+          boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)"
         }}
         onMouseDown={handleMouseDown}
       >
-        <button 
-          onClick={handleToggleRecording}
-          style={{
-            backgroundColor: isRecording ? "#ef4444" : "#22c55e",
-            color: "white",
-            border: "none",
-            borderRadius: "50%",
-            padding: "8px",
-            marginRight: "8px",
-            cursor: "pointer",
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <button 
+            onClick={handleToggleRecording}
+            style={{
+              position: "relative",
+              width: "2.25rem",
+              height: "2.25rem",
+              borderRadius: "0.5rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+              transition: "background-color 0.2s",
+              background: isRecording
+                ? "linear-gradient(to bottom right, #dc2626, #991b1b)"
+                : "linear-gradient(to bottom right, #ffffff, #f3f4f6)",
+              border: "none",
+              cursor: "pointer"
+            }}
+          >
+            {isRecording ? (
+              <Pause style={{ height: "1rem", width: "1rem", color: "white" }} />
+            ) : (
+              <Play style={{ 
+                height: "1rem", 
+                width: "1rem", 
+                color: "#f97316",
+                marginLeft: "0.125rem"
+              }} />
+            )}
+          </button>
+          
+          <div style={{
+            padding: "0.375rem 0.75rem",
+            background: "linear-gradient(to right, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1))",
+            borderRadius: "0.5rem",
             display: "flex",
-            justifyContent: "center",
             alignItems: "center"
-          }}
-        >
-          {isRecording ? (
-            <Pause style={{ height: "20px", width: "20px" }} />
-          ) : (
-            <Play style={{ height: "20px", width: "20px" }} />
-          )}
-        </button>
-        
-        <div style={{
-          padding: "4px 12px",
-          backgroundColor: "#1e293b",
-          borderRadius: "8px",
-          display: "flex",
-          alignItems: "center",
-          marginRight: "8px"
-        }}>
-          <Clock style={{ height: "16px", width: "16px", color: "#e2e8f0", marginRight: "8px" }} />
-          <span style={{ color: "white", fontSize: "14px" }}>{getCurrentTime()}</span>
-        </div>
-        
-        <div style={{
-          padding: "4px 12px",
-          backgroundColor: "#1e293b",
-          borderRadius: "8px",
-          display: "flex",
-          alignItems: "center"
-        }}>
-          <span style={{ color: "white", fontSize: "14px", fontFamily: "monospace" }}>
-            {isRecording ? formatTime(recordingTime) : "00:00"}
-          </span>
+          }}>
+            <Clock style={{ height: "0.875rem", width: "0.875rem", color: "white", marginRight: "0.5rem" }} />
+            <span style={{ color: "white", fontSize: "0.75rem", fontWeight: 500 }}>{getCurrentTime()}</span>
+          </div>
+          
+          <div style={{
+            padding: "0.375rem 0.75rem",
+            borderRadius: "0.5rem",
+            display: "flex",
+            alignItems: "center",
+            background: isRecording
+              ? "linear-gradient(to right, rgba(220, 38, 38, 0.3), rgba(220, 38, 38, 0.3))"
+              : "linear-gradient(to right, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1))",
+            border: isRecording ? "1px solid rgba(248, 113, 113, 0.3)" : "none"
+          }}>
+            <span style={{ 
+              fontSize: "0.75rem", 
+              fontFamily: "monospace", 
+              fontWeight: 600,
+              letterSpacing: "0.05em",
+              color: "white" 
+            }}>
+              {formatTime(recordingTime)}
+            </span>
+            {isRecording && (
+              <div style={{ 
+                marginLeft: "0.5rem", 
+                display: "flex", 
+                alignItems: "center", 
+                gap: "0.125rem" 
+              }}>
+                <div style={{ 
+                  width: "0.25rem", 
+                  height: "0.75rem", 
+                  backgroundColor: "white", 
+                  borderRadius: "0.125rem",
+                  animation: "pulse 1s infinite" 
+                }}></div>
+                <div style={{ 
+                  width: "0.25rem", 
+                  height: "0.5rem", 
+                  backgroundColor: "white", 
+                  borderRadius: "0.125rem",
+                  animation: "pulse 1s infinite",
+                  animationDelay: "75ms"
+                }}></div>
+                <div style={{ 
+                  width: "0.25rem", 
+                  height: "1rem", 
+                  backgroundColor: "white", 
+                  borderRadius: "0.125rem",
+                  animation: "pulse 1s infinite",
+                  animationDelay: "150ms"
+                }}></div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -307,98 +353,123 @@ const RecordingControlPanel = () => {
             position: "fixed",
             top: `${popupPosition.top}px`,
             left: `${popupPosition.left}px`,
-            zIndex: 99999,
-            backgroundColor: "rgba(0, 0, 0, 0.8)",
-            backdropFilter: "blur(8px)",
-            borderRadius: "8px",
-            border: "1px solid #ef4444",
-            padding: "16px",
-            width: "200px",
-            boxShadow: "0 0 20px rgba(239, 68, 68, 0.4)"
+            zIndex: 10000,
+            width: "16rem",
+            background: "linear-gradient(to bottom right, #ea580c, #f59e0b, #db2777)",
+            borderRadius: "0.75rem",
+            padding: "1rem",
+            boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)"
           }}
         >
           <div style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: "12px"
+            marginBottom: "0.75rem"
           }}>
             <h3 style={{
-              fontSize: "14px",
+              fontSize: "0.875rem",
               fontWeight: 600,
-              color: "#fca5a5",
+              color: "white",
               display: "flex",
               alignItems: "center",
-              gap: "6px"
+              gap: "0.375rem"
             }}>
-              <StopCircle style={{ height: "14px", width: "14px" }} />
+              <StopCircle style={{ height: "0.875rem", width: "0.875rem" }} />
               Stop Recording?
             </h3>
             <button 
               onClick={() => setShowStopPopup(false)} 
               style={{
-                color: "#fca5a5",
+                color: "rgba(255, 255, 255, 0.7)",
                 background: "none",
                 border: "none",
                 cursor: "pointer",
                 padding: 0,
-                display: "flex"
+                display: "flex",
+                transition: "color 0.2s"
               }}
+              onMouseOver={(e) => e.currentTarget.style.color = "white"}
+              onMouseOut={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)"}
             >
-              <X style={{ height: "16px", width: "16px" }} />
+              <X style={{ height: "1rem", width: "1rem" }} />
             </button>
           </div>
           <div style={{
             display: "flex",
             flexDirection: "column",
-            gap: "8px"
+            gap: "0.5rem"
           }}>
             <button
               onClick={handleStopRecording}
               style={{
                 width: "100%",
-                padding: "8px 12px",
-                backgroundColor: "#dc2626",
+                padding: "0.5rem",
+                background: "linear-gradient(to right, #dc2626, #b91c1c)",
                 color: "white",
-                borderRadius: "4px",
+                borderRadius: "0.5rem",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "8px",
-                fontSize: "14px",
+                gap: "0.5rem",
+                fontSize: "0.875rem",
                 fontWeight: 500,
                 border: "none",
                 cursor: "pointer",
-                boxShadow: "0 0 10px rgba(239, 68, 68, 0.3)"
+                transition: "background 0.2s"
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = "linear-gradient(to right, #b91c1c, #991b1b)"
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = "linear-gradient(to right, #dc2626, #b91c1c)"
               }}
             >
-              <StopCircle style={{ height: "16px", width: "16px" }} />
+              <StopCircle style={{ height: "1rem", width: "1rem" }} />
               Stop Recording
             </button>
             <button
               onClick={() => setShowStopPopup(false)}
               style={{
                 width: "100%",
-                padding: "8px 12px",
-                backgroundColor: "transparent",
-                border: "1px solid rgba(156, 163, 175, 0.5)",
-                color: "#d1d5db",
-                borderRadius: "4px",
+                padding: "0.5rem",
+                background: "linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2))",
+                color: "white",
+                borderRadius: "0.5rem",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "8px",
-                fontSize: "14px",
+                gap: "0.5rem",
+                fontSize: "0.875rem",
                 fontWeight: 500,
-                cursor: "pointer"
+                border: "none",
+                cursor: "pointer",
+                transition: "background 0.2s"
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = "linear-gradient(to right, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.3))"
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = "linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2))"
               }}
             >
-              <Play style={{ height: "16px", width: "16px" }} />
+              <Play style={{ height: "1rem", width: "1rem" }} />
               Continue Recording
             </button>
           </div>
         </div>
       )}
+
+      {/* Add CSS for animations */}
+      <style>
+        {`
+          @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+          }
+        `}
+      </style>
     </>
   )
 }
