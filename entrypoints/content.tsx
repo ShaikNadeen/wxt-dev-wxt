@@ -513,11 +513,8 @@ export default defineContentScript({
   matches: ['*://*.google.com/*', '*://meet.google.com/*'],
   main() {
     console.log('Meet recorder content script initialized');
-    
-    // Check if we're on a Google Meet page
-    const isGoogleMeet = window.location.hostname === 'meet.google.com' || 
-                        (window.location.hostname.includes('google.com') && 
-                         window.location.pathname.includes('/meet/'));
+
+    const isGoogleMeet = window.location.hostname === 'meet.google.com' && window.location.pathname !== '/landing';
     
     if (!isGoogleMeet) {
       console.log('Not a Google Meet page, exiting');
@@ -538,14 +535,13 @@ export default defineContentScript({
             injectControlPanel()
           }
         } else if (message.action === "stopRecording") {
-          // removeControlPanel()
+          removeControlPanel()
         } else if (message.action === "checkRecordingStatus") {
           const panel = document.getElementById("meet-recording-control-panel")
           sendResponse({ 
             controlPanelActive: !!panel
           })
         }
-        
         return true
       })
     }

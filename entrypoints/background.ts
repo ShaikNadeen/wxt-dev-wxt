@@ -24,6 +24,19 @@ export default defineBackground({
           console.log('Already recording, cannot start new recording');
           return;
         }
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+              console.log("Extension invoked for this tab");
+              return true;
+            },
+          });
+        } catch (error) {
+          console.error('Error invoking extension for tab:', error);
+          throw error;
+        }
+
         
         // Check for existing offscreen document
         const existingContexts = await chrome.runtime.getContexts({});
@@ -59,10 +72,8 @@ export default defineBackground({
           return;
         }
         
-        // Wait a moment to ensure offscreen document is ready
         await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Get tab media stream ID
+
         console.log('Getting tab media stream ID');
         const streamId = await new Promise<string>((resolve, reject) => {
           chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId) => {

@@ -17,13 +17,13 @@ export default defineConfig({
       'cookies',
       'scripting',
       'offscreen',
-      'audio'
+      'desktopCapture'
     ],
     host_permissions: [
       'http://localhost/*',
-      '*://*.google.com/*',
-      '*://meet.google.com/*'
+    "https://meet.google.com/*",
     ],
+    
     action: {
   default_icon: "icon/16.png",
   default_title: "Start Recording"

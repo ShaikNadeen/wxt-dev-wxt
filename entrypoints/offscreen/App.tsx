@@ -47,10 +47,10 @@ const App: React.FC = () => {
             console.error(`Unrecognized message: ${message.type}`);
             sendResponse({ success: false, error: 'Unrecognized message type' });
         }
-        return true; // Keep the message channel open for async response
+        return true;
       }
       
-      return false; // Not handling this message
+      return false;
     };
 
     chrome.runtime.onMessage.addListener(handleMessages);
@@ -73,7 +73,6 @@ const App: React.FC = () => {
     }
     
     try {
-      // Reset data array
       dataRef.current = [];
       
       const mediaOptions = {
@@ -81,51 +80,49 @@ const App: React.FC = () => {
           mandatory: {
             chromeMediaSource: 'tab',
             chromeMediaSourceId: streamId,
-          },
-          includeSelf: true
+          }
         },
         video: false,
       } as any;
       
       console.log('Requesting tab media with options:', JSON.stringify(mediaOptions));
-      const media = await navigator.mediaDevices.getUserMedia(mediaOptions);
+      const tabStream = await navigator.mediaDevices.getUserMedia(mediaOptions);
       console.log('Tab media stream obtained successfully');
 
-      // Request microphone with error handling
-      console.log('Requesting microphone access');
       const micMedia = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false
+        audio:{
+          echoCancellation:true,
+          noiseSuppression:true,
+          autoGainControl:true,
+        },
+        video:false
       }).catch(error => {
         console.warn('Could not get microphone access, continuing without it:', error);
         return null;
       });
       
-      if (micMedia) {
+  
+
+      const mixedStream=new MediaStream();
+
+      tabStream.getAudioTracks().forEach(track=>{
+        mixedStream.addTrack(track)
+      })
+
+    if (micMedia) {
         console.log('Microphone access granted');
+        micMedia.getAudioTracks().forEach(track => {
+          mixedStream.addTrack(track);
+        });
       }
 
-      // Create audio context and mix streams
-      const output = new AudioContext();
-      const source = output.createMediaStreamSource(media);
-      const destination = output.createMediaStreamDestination();
-      
-      source.connect(output.destination);
-      source.connect(destination);
-      
-      // Only connect microphone if available
-      if (micMedia) {
-        const micAudio = output.createMediaStreamSource(micMedia);
-        micAudio.connect(destination);
-        console.log('Microphone audio connected');
-      }
-      
-      console.log('Audio streams connected and mixed');
+            console.log('Combined stream created with tracks:', mixedStream.getTracks().length);
+
 
       // Request at least 100ms of data every 100ms
-      recorderRef.current = new MediaRecorder(destination.stream, { 
+      recorderRef.current = new MediaRecorder(mixedStream, { 
       mimeType: 'audio/webm;codecs=opus',
-        audioBitsPerSecond: 128000
+        audioBitsPerSecond: 320000
       });
       
       recorderRef.current.ondataavailable = (event: any) => {
@@ -179,7 +176,6 @@ const App: React.FC = () => {
       recorderRef.current.start(100);
       console.log('MediaRecorder started:', recorderRef.current.state);
 
-      // Notify background that recording has started
       chrome.runtime.sendMessage({
         action: 'set-recording',
         recording: true,
